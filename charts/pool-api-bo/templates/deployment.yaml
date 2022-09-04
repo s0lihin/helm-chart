@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pool-api-bo.fullname" . }}
+  labels:
+    {{- include "pool-api-bo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Chart.Name }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pool-api-bo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pool-api-bo.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pool-api-bo.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: SPRING_DATA_MONGODB_URI
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: SPRING_DATA_MONGODB_URI
+          - name: KAFKACONSUMERCONFIG_BOOTSTRAPSERVERS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_BOOTSTRAPSERVERS
+          - name: KAFKACONSUMERCONFIG_CLIENTID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_CLIENTID
+          - name: KAFKACONSUMERCONFIG_GROUPID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_GROUPID
+          - name: KAFKACONSUMERCONFIG_CLIENTCODE
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_CLIENTCODE
+          - name: KAFKAPRODUCERCONFIG_BOOTSTRAPSERVERS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKAPRODUCERCONFIG_BOOTSTRAPSERVERS
+          - name: KAFKAPRODUCERCONFIG_CLIENTID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKAPRODUCERCONFIG_CLIENTID
+          - name: REDISPERSISTENCECONFIG_ADDRESS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: REDISPERSISTENCECONFIG_ADDRESS
+          - name: REDISSESSIONCONFIG_ADDRESS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: REDISSESSIONCONFIG_ADDRESS
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

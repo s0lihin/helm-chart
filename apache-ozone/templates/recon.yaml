@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: recon
+spec:
+  type: NodePort
+  ports:
+  - port: {{ .Values.servicerecon.port }}
+    nodePort: {{ .Values.servicerecon.nodePort }}
+    name: ui
+  selector:
+    app: ozone
+    component: recon
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: recon
+  labels:
+    app.kubernetes.io/component: ozone
+spec:
+  selector:
+    matchLabels:
+      app: ozone
+      component: recon
+  serviceName: recon
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ozone
+        component: recon
+    #  annotations:
+    #    prometheus.io/scrape: "true"
+    #    prometheus.io/port: "9874"
+    #    prometheus.io/path: /prom
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: recon
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        args:
+        - ozone
+        - recon
+        #env:
+        #- name: WAITFOR
+        #  value: scm-0.scm:9876
+        #- name: ENSURE_OM_INITIALIZED
+        #  value: /data/metadata/om/current/VERSION
+        #livenessProbe:
+        #  tcpSocket:
+        #    port: 9862
+        #  initialDelaySeconds: 30
+        envFrom:
+        - configMapRef:
+            name: config
+        #volumeMounts:
+        #- name: data
+        #  mountPath: /data
+      volumes: []
+  #volumeClaimTemplates:
+  #- metadata:
+  #    name: data
+  #  spec:
+  #    accessModes:
+  #    - ReadWriteOnce
+  #    resources:
+  #      requests:
+  #        storage: 2Gi

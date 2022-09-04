@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "pool-dss.fullname" . }}-test-connection"
+  labels:
+    {{- include "pool-dss.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "pool-dss.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never

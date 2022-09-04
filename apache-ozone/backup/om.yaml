@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: om
+spec:
+  ports:
+  - port: 9874
+    name: ui
+  clusterIP: None
+  selector:
+    app: ozone
+    component: om
+---
+#kind: PersistentVolume
+#apiVersion: v1
+#metadata:
+#  name: data-ozone-pv
+#  labels:
+#    name: data-ozone-pv
+#spec:
+#  storageClassName: local
+#  capacity:
+#    storage: 10Mi
+#  volumeMode: Filesystem
+#  persistentVolumeReclaimPolicy: Delete
+#  accessModes:
+#    - ReadWriteOnce
+#  local:
+#    path: /mnt/disks/ssd1
+#  nodeAffinity:
+#    required:
+#      nodeSelectorTerms:
+#      - matchExpressions:
+#        - key: kubernetes.io/hostname
+#          operator: In
+#          values:
+#          - example-node
+#---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ozone-pv
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 1Gi
+    accessModes:
+      - ReadWriteOnce
+    hostPath:
+      path: "/mnt/data"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ozone-pvc
+spec:
+  storageClassName: ""
+  accessModes:
+      - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: om
+  labels:
+    app.kubernetes.io/component: ozone
+spec:
+  selector:
+    matchLabels:
+      app: ozone
+      component: om
+  serviceName: om
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ozone
+        component: om
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9874"
+        prometheus.io/path: /prom
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: om
+        image: 'apache/ozone:1.2.1'
+        args:
+          - ozone
+          - om
+        #env:
+        #- name: WAITFOR
+        #  value: scm-0.scm:9876
+        #- name: ENSURE_OM_INITIALIZED
+        #  value: /data/metadata/om/current/VERSION
+        #livenessProbe:
+        #  tcpSocket:
+        #    port: 9862
+        #  initialDelaySeconds: 60
+        envFrom:
+        - configMapRef:
+          name: ozone-config
+        persistentVolumeClaim:
+          claimName: ozone-pvc
+        #volumeMounts:
+        #- name: data-ozone
+        #  mountPath: /data
+      #volumes: []
+  #volumeClaimTemplates:
+  #- metadata:
+  #    name: test
+  #  spec:
+  #    accessModes:
+  #      - ReadWriteMany
+  #    resources:
+  #      requests:
+  #        storage: 10Mi

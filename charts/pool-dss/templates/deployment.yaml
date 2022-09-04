@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pool-dss.fullname" . }}
+  labels:
+    {{- include "pool-dss.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Chart.Name }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pool-dss.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pool-dss.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pool-dss.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: SPRING_R2DBC_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: SPRING_R2DBC_URL
+          - name: SPRING_R2DBC_USERNAME
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: SPRING_R2DBC_USERNAME
+          - name: SPRING_R2DBC_PASSWORD
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: SPRING_R2DBC_PASSWORD
+          - name: RECEIVER_GROUPID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: RECEIVER_GROUPID
+          - name: RECEIVER_CLIENTID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: RECEIVER_CLIENTID
+          - name: SPRING_DATA_MONGODB_URI
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: SPRING_DATA_MONGODB_URI
+          - name: GAMETOKEN_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: GAMETOKEN_HOST
+          #- name: SPRING_DATA_MONGODB_USERNAME
+          #  valueFrom:
+          #    configMapKeyRef:
+          #      name: pool-dss-config
+          #      key: SPRING_DATA_MONGODB_USERNAME
+          #- name: SPRING_DATA_MONGODB_PASSWORD
+          #  valueFrom:
+          #    configMapKeyRef:
+          #      name: pool-dss-config
+          #      key: SPRING_DATA_MONGODB_PASSWORD
+          - name: SPRING_KAFKA_BOOTSTRAPSERVERS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-dss-config
+                key: SPRING_KAFKA_BOOTSTRAPSERVERS
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          #command: ['tail', '-f', '/dev/null']
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          #livenessProbe:
+          #  httpGet:
+          #    path: /
+          #    port: http
+          #readinessProbe:
+          #  httpGet:
+          #    path: /
+          #    port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

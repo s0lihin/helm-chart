@@ -1,0 +1,176 @@
+kind: ConfigMap
+metadata:
+  name: zookeeper-config
+  namespace: {{ .Release.Namespace }}
+apiVersion: v1
+data:
+  init.sh: |-
+    #!/bin/bash
+    set -e
+    set -x
+    [ ! -d /var/lib/zookeeper/data ] && mkdir -m 770 /var/lib/zookeeper/data && chgrp $(stat -c '%g' /var/lib/zookeeper) /var/lib/zookeeper/data
+    [ -z "$ID_OFFSET" ] && ID_OFFSET=1
+    export ZOOKEEPER_SERVER_ID=$((${HOSTNAME##*-} + $ID_OFFSET))
+    echo "${ZOOKEEPER_SERVER_ID:-1}" | tee /var/lib/zookeeper/data/myid
+    cp -Lur /etc/kafka-configmap/* /etc/kafka/
+    [ ! -z "$PZOO_REPLICAS" ] && [ ! -z "$REPLICAS" ] && {
+      sed -i "s/^server\\./#server./" /etc/kafka/zookeeper.properties
+      for N in $(seq $PZOO_REPLICAS); do echo "server.$N=pzoo-$(( $N - 1 )).pzoo.$POD_NAMESPACE.svc.cluster.local:2888:3888:participant" >> /etc/kafka/zookeeper.properties; done
+      for N in $(seq $(( $REPLICAS - $PZOO_REPLICAS ))); do echo "server.$(( $PZOO_REPLICAS + $N ))=zoo-$(( $N - 1 )).zoo.$POD_NAMESPACE.svc.cluster.local:2888:3888:participant" >> /etc/kafka/zookeeper.properties; done
+    }
+    ln -s /etc/kafka/zookeeper.properties /etc/kafka/zookeeper.properties.scale-$REPLICAS.$POD_NAME
+  zookeeper.properties: |
+    4lw.commands.whitelist=ruok
+    tickTime=2000
+    dataDir=/var/lib/zookeeper/data
+    dataLogDir=/var/lib/zookeeper/log
+    clientPort=2181
+    maxClientCnxns=3
+    initLimit=5
+    syncLimit=2
+    tcpKeepAlive=true
+    electionPortBindRetry=0
+    server.1=pzoo-0.pzoo:2888:3888:participant
+    server.2=pzoo-1.pzoo:2888:3888:participant
+    server.3=pzoo-2.pzoo:2888:3888:participant
+    server.4=zoo-0.zoo:2888:3888:participant
+    server.5=zoo-1.zoo:2888:3888:participant
+  log4j.properties: |-
+    log4j.rootLogger=INFO, stdout
+    log4j.appender.stdout=org.apache.log4j.ConsoleAppender
+    log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+    log4j.appender.stdout.layout.ConversionPattern=[%d] %p %m (%c)%n
+    # Suppress connection log messages, one line per readiness probe
+    log4j.logger.org.apache.zookeeper.server.NIOServerCnxn=WARN
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pzoo
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: 2888
+    name: peer
+  - port: 3888
+    name: leader-election
+  clusterIP: None
+  selector:
+    app: zookeeper
+    storage: persistent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: 2181
+    name: client
+  selector:
+    app: zookeeper
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pzoo
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: zookeeper
+      storage: persistent
+  serviceName: "pzoo"
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+        storage: persistent
+      annotations:
+    spec:
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: init-config
+        image: solsson/kafka:initutils@sha256:8988aca5b34feabe8d7d4e368f74b2ede398f692c7e99a38b262a938d475812c
+        command: ['/bin/bash', '/etc/kafka-configmap/init.sh']
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: configmap
+          mountPath: /etc/kafka-configmap
+        - name: config
+          mountPath: /etc/kafka
+        - name: data
+          mountPath: /var/lib/zookeeper
+      containers:
+      - name: zookeeper
+        image: solsson/kafka:2.5.1@sha256:5c52620bd8e1bcd47805eb8ca285843168e1684aa27f1ae11ce330c3e12f6b0c
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KAFKA_LOG4J_OPTS
+          value: -Dlog4j.configuration=file:/etc/kafka/log4j.properties
+        command:
+        - ./bin/zookeeper-server-start.sh
+        - /etc/kafka/zookeeper.properties
+        #command: ['tail', '-f', '/dev/null']
+        lifecycle:
+          preStop:
+            exec:
+             command: ["sh", "-ce", "kill -s TERM 1; while $(kill -0 1 2>/dev/null); do sleep 1; done"]
+        ports:
+        - containerPort: 2181
+          name: client
+        - containerPort: 2888
+          name: peer
+        - containerPort: 3888
+          name: leader-election
+        resources:
+          requests:
+            cpu: 10m
+            memory: 100Mi
+          limits:
+            memory: 120Mi
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - '[ "imok" = "$(echo ruok | nc -w 1 -q 1 127.0.0.1 2181)" ]'
+          timeoutSeconds: 2
+          periodSeconds: 30
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kafka
+        - name: data
+          mountPath: /var/lib/zookeeper
+      volumes:
+      - name: configmap
+        configMap:
+          name: zookeeper-config
+      - name: config
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+  #volumeClaimTemplates:
+  #- metadata:
+  #    name: data
+  #  spec:
+  #    accessModes: [ "ReadWriteOnce" ]
+  #    resources:
+  #      requests:
+  #        storage: 1Gi

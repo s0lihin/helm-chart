@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "pool-dss-bo.fullname" . }}
+  labels:
+    {{- include "pool-dss-bo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Chart.Name }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pool-dss-bo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "pool-dss-bo.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pool-dss-bo.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name : SPRING_DATA_MONGODB_URI
+            valueFrom :
+              configMapKeyRef :
+                name : pool-dss-bo-config
+                key : SPRING_DATA_MONGODB_URI
+          - name : SPRING_R2DBC_URL
+            valueFrom :
+              configMapKeyRef :
+                name : pool-dss-bo-config
+                key : SPRING_R2DBC_URL
+          - name : SPRING_R2DBC_USERNAME
+            valueFrom :
+              configMapKeyRef :
+                name : pool-dss-bo-config
+                key : SPRING_R2DBC_USERNAME
+          - name : SPRING_R2DBC_PASSWORD
+            valueFrom :
+              configMapKeyRef :
+                name : pool-dss-bo-config
+                key : SPRING_R2DBC_PASSWORD
+          - name: KAFKACONSUMERCONFIG_BOOTSTRAPSERVERS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_BOOTSTRAPSERVERS
+          - name: KAFKACONSUMERCONFIG_CLIENTID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_CLIENTID
+          - name: KAFKACONSUMERCONFIG_GROUPID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_GROUPID
+          - name: KAFKACONSUMERCONFIG_CLIENTCODE
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKACONSUMERCONFIG_CLIENTCODE
+          - name: KAFKAPRODUCERCONFIG_BOOTSTRAPSERVERS
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKAPRODUCERCONFIG_BOOTSTRAPSERVERS
+          - name: KAFKAPRODUCERCONFIG_CLIENTID
+            valueFrom:
+              configMapKeyRef:
+                name: pool-api-bo-config
+                key: KAFKAPRODUCERCONFIG_CLIENTID
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
